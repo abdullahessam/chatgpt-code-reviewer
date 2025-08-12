@@ -43,6 +43,7 @@ To use this github action, you will need to have a GitHub account and an OpenAI 
            env:
              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
              OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+             # CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Custom prompt for code reviews
    ```
 
    ### Parameters
@@ -57,6 +58,7 @@ To use this github action, you will need to have a GitHub account and an OpenAI 
    | -------------- | ------------------------------------------------------------------------- | -------- | ------------- |
    | GITHUB_TOKEN   | provided to you automatically by GitHub, used to send out review comments | true     | ""            |
    | OPENAI_API_KEY | API key used to invoke OpenAI                                             | true     | ""            |
+   | CUSTOM_PROMPT  | Custom prompt for the code review. If not provided, uses the default prompt | false    | "You now assume the role of a code reviewer. Based on the patch provide a list of suggestions how to improve the code with examples according to coding standards and best practices.\nStart every suggestion with path to the file. Path to the file should start with @@ and end with @@" |
 
 ---
 
