@@ -1,0 +1,13 @@
+name: test-chatgpt-code-reviewer
+run-name: test-chatgpt-code-reviewer
+on: [pull_request]
+jobs:
+  chatgpt-code-reviewer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ChatGPT Review
+        uses: abdullahessam/chatgpt-code-reviewer@feature/custom-prompt-env-var
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Custom prompt for code reviews
