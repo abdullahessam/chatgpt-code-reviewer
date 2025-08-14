@@ -8,6 +8,7 @@ import concatenatePatchesToString from './utils/concatenatePatchesToString';
 import divideFilesByTokenRange from './utils/divideFilesByTokenRange';
 import extractFirstChangedLineFromPatch from './utils/extractFirstChangedLineFromPatch';
 import getOpenAiSuggestions from './utils/getOpenAiSuggestions';
+import parsePatchForChanges from './utils/patchParser';
 import parseOpenAISuggestions from './utils/parseOpenAISuggestions';
 
 const MAX_TOKENS = parseInt(getInput('max_tokens'), 10) || 4096;
@@ -77,7 +78,7 @@ class CommentOnPullRequestService {
     const lastCommitId = await this.getLastCommit();
 
     for (const file of files) {
-      const firstChangedLine = extractFirstChangedLineFromPatch(file.patch);
+      const patchInfo = parsePatchForChanges(file.patch);
       const suggestionForFile = suggestionsByFile.find(
         (suggestion) => suggestion.filename === file.filename,
       );
@@ -87,26 +88,79 @@ class CommentOnPullRequestService {
           const consoleTimeLabel = `Comment was created successfully for file: ${file.filename}`;
           console.time(consoleTimeLabel);
 
-          await this.octokitApi.rest.pulls.createReviewComment({
-            owner,
-            repo,
-            pull_number: pullNumber,
-            line: firstChangedLine,
-            path: suggestionForFile.filename,
-            body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
-            commit_id: lastCommitId,
-          });
+          // Determine the best line to comment on
+          let targetLine = patchInfo.firstChangedLine;
+          
+          // If we have specific added lines, use the first one
+          if (patchInfo.addedLines.length > 0) {
+            targetLine = patchInfo.addedLines[0];
+          } else if (patchInfo.modifiedLines.length > 0) {
+            targetLine = patchInfo.modifiedLines[0];
+          }
+
+          console.log(`Attempting to comment on line ${targetLine} for file ${file.filename}`);
+
+          try {
+            await this.octokitApi.rest.pulls.createReviewComment({
+              owner,
+              repo,
+              pull_number: pullNumber,
+              line: targetLine,
+              path: suggestionForFile.filename,
+              body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
+              commit_id: lastCommitId,
+            });
+          } catch (lineError: any) {
+            console.warn(`Failed to create line comment for ${file.filename} at line ${targetLine}:`, lineError.message);
+            
+            // Try using the side parameter for better compatibility
+            try {
+              await this.octokitApi.rest.pulls.createReviewComment({
+                owner,
+                repo,
+                pull_number: pullNumber,
+                line: targetLine,
+                side: 'RIGHT',
+                path: suggestionForFile.filename,
+                body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
+                commit_id: lastCommitId,
+              });
+            } catch (sideError: any) {
+              console.warn(`Failed to create side comment, falling back to patch start line:`, sideError.message);
+              
+              // Final fallback: use the patch start line
+              const patchStartLine = this.extractPatchStartLine(file.patch);
+              
+              await this.octokitApi.rest.pulls.createReviewComment({
+                owner,
+                repo,
+                pull_number: pullNumber,
+                line: patchStartLine,
+                path: suggestionForFile.filename,
+                body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
+                commit_id: lastCommitId,
+              });
+            }
+          }
 
           console.timeEnd(consoleTimeLabel);
         } catch (error) {
           console.error(
-            'An error occurred while trying to add a comment',
+            `An error occurred while trying to add a comment to ${file.filename}:`,
             error,
           );
-          throw error;
+          // Don't throw here, continue with other files
         }
       }
     }
+  }
+
+  private extractPatchStartLine(patch: string): number {
+    const lineHeaderRegExp = /^@@ -\d+,\d+ \+(\d+),(\d+) @@/;
+    const lines = patch.split('\n');
+    const lineHeaderMatch = lines[0].match(lineHeaderRegExp);
+    
+    return lineHeaderMatch ? parseInt(lineHeaderMatch[1], 10) : 1;
   }
 
   public async addCommentToPr() {
