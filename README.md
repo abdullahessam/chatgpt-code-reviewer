@@ -1,94 +1,339 @@
-# chatgpt-code-reviewer
+# Enhanced ChatGPT Code Reviewer
 
-GitHub action that adds ChatGPT code review comments to pull requests. This service uses the GitHub REST API and the OpenAI API to generate suggestions for pull request changes.
+> **Forked from:** [magnificode-ltd/chatgpt-code-reviewer](https://github.com/magnificode-ltd/chatgpt-code-reviewer)  
+> **Enhanced Version:** This fork includes improved line targeting, custom prompts, and better error handling.
 
-Example:
+An intelligent GitHub action that adds ChatGPT-powered code review comments directly to your pull requests. Uses the GitHub REST API and OpenAI API to provide instant, contextual feedback on code changes.
+
+## ✨ Features
+
+### 🚀 **New in This Fork:**
+- **🎯 Accurate Line Targeting** - Comments now appear on the exact changed lines instead of file tops
+- **🛠️ Custom Prompts** - Customize the review prompt with `CUSTOM_PROMPT` environment variable
+- **🔄 Enhanced Fallback Strategies** - Multiple approaches to ensure comments are placed correctly
+- **📊 Detailed Logging** - Better debugging information for troubleshooting
+- **⚡ Improved Error Handling** - More robust API interaction with GitHub
+
+### 📋 **Core Features:**
+- **Instant Code Reviews** - Get feedback immediately when PRs are created
+- **Contextual Suggestions** - Comments appear inline on relevant code lines
+- **Best Practices Focus** - Suggestions based on coding standards and patterns
+- **Multiple AI Models** - Support for different OpenAI models
+- **Token Management** - Handles large files with intelligent chunking
+
+## 📸 Example
+
 <img src='docs/images/chatgpt-review-comment.png' alt='ChatGPT Review Example Comment'/>
 
-### A few notes on what to expect
+## 🎯 What to Expect
 
-* This is not intended to replace an actual code review done by a developer. It's meant to spot things humans could miss, provide instantaneous feedback and fix immediately, before a peer has had time to review.
-* While in many of the cases we've seen the comments are great, it isn't always right, so be critical and decide for yourself what needs fixing and what does not.
+- **Complementary Tool**: This doesn't replace human code reviews - it catches things humans might miss
+- **Instant Feedback**: Get suggestions immediately, before peer review
+- **Critical Evaluation**: The AI isn't always right - use your judgment on which suggestions to implement
 
-### Before you start
+## ⚠️ Important Notice
 
-By using this repository you acknowledge and approve of the fact that:
-
-- Your code would be sent to OpenAI servers for generating code review suggestions.
-- Authors of this github action have no responsibility whatsoever to the consequences of the above, and they would not be liable for anything that happens as a result of using this action.
-
----
-
-### Getting Started
-
-To use this github action, you will need to have a GitHub account and an OpenAI API key. Also you will need to configure a GitHub action workflow.
-
-1. Visit https://platform.openai.com/account/api-keys to generate a new OpenAI API key.
-2. Add new key with a name `OPENAI_API_KEY` as described [here](https://docs.github.com/en/actions/security-guides/encrypted-secrets#creating-encrypted-secrets-for-a-repository). As a value set generated OpenAi Api key from the step 1
-3. In a repository you want to run this action, create a file: `.github/workflows/chatgpt-code-reviewer.yml` with the next content:
-
-   ```yml
-   name: chatgpt-code-reviewer
-   run-name: chatgpt-code-reviewer
-   on: [pull_request]
-   
-   permissions:
-     contents: read
-     pull-requests: write
-     issues: write
-   
-   jobs:
-     chatgpt-code-reviewer:
-       runs-on: ubuntu-latest
-       steps:
-         - name: ChatGPT Review
-           uses: magnificode-ltd/chatgpt-code-reviewer@v0.0.8
-           # with:
-           # model: gpt-3.5-turbo
-           # max_tokens: 4096
-           env:
-             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-             OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-             # CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Custom prompt for code reviews
-   ```
-
-   ### Parameters
-
-   | Parameter      | Description                                                               | Required | Default Value |
-   | -------------- | ------------------------------------------------------------------------- | -------- | ------------- |
-   | model          | OpenAI model                                                              | false    | gpt-3.5-turbo |
-   | max_tokens     | OpenAI TPM                                                                | false    | 4096          |
-
-   ### Environment Variables
-   | Variable      | Description                                                               | Required | Default Value |
-   | -------------- | ------------------------------------------------------------------------- | -------- | ------------- |
-   | GITHUB_TOKEN   | provided to you automatically by GitHub, used to send out review comments | true     | ""            |
-   | OPENAI_API_KEY | API key used to invoke OpenAI                                             | true     | ""            |
-   | CUSTOM_PROMPT  | Custom prompt for the code review. If not provided, uses the default prompt | false    | "You now assume the role of a code reviewer. Based on the patch provide a list of suggestions how to improve the code with examples according to coding standards and best practices.\nStart every suggestion with path to the file. Path to the file should start with @@ and end with @@" |
+By using this action, you acknowledge:
+- Your code will be sent to OpenAI servers for analysis
+- Authors are not responsible for any consequences of using this action
+- You should review all suggestions before implementing them
 
 ---
 
-### About
+## 🚀 Quick Setup
+
+### Prerequisites
+- GitHub account with a repository
+- OpenAI API key ([Get one here](https://platform.openai.com/account/api-keys))
+
+### 1. Add Required Secrets
+
+Go to your repository → Settings → Secrets and variables → Actions, then add:
+
+| Secret Name | Value | Description |
+|-------------|-------|-------------|
+| `OPENAI_API_KEY` | `sk-...` | Your OpenAI API key |
+| `CUSTOM_PROMPT` | *Optional* | Custom review prompt (see examples below) |
+
+### 2. Create Workflow File
+
+Create `.github/workflows/chatgpt-reviewer.yml`:
+
+```yml
+name: ChatGPT Code Reviewer
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ChatGPT Review
+        uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+        with:
+          model: gpt-3.5-turbo  # Optional: gpt-4, gpt-3.5-turbo
+          max_tokens: 4096      # Optional: Adjust based on needs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional
+```
+
+### 3. Repository Settings
+
+Ensure your repository has these settings:
+- **Actions enabled**: Settings → Actions → General → "Allow all actions"
+- **Workflow permissions**: Settings → Actions → General → "Read and write permissions"
+
+---
+
+## ⚙️ Configuration
+
+### Input Parameters
+
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `model` | OpenAI model to use | No | `gpt-3.5-turbo` |
+| `max_tokens` | Maximum tokens per request | No | `4096` |
+
+### Environment Variables
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `GITHUB_TOKEN` | GitHub access token (auto-provided) | ✅ Yes | `${{ secrets.GITHUB_TOKEN }}` |
+| `OPENAI_API_KEY` | Your OpenAI API key | ✅ Yes | `sk-proj-...` |
+| `CUSTOM_PROMPT` | Custom review instructions | ❌ No | See examples below |
+
+### Custom Prompt Examples
+
+#### Security-Focused Reviews
+```
+CUSTOM_PROMPT: "You are a security-focused code reviewer. Analyze the code changes for potential security vulnerabilities, including SQL injection, XSS, authentication issues, and data exposure. Provide specific recommendations to improve security. Start every suggestion with the file path between @@ markers."
+```
+
+#### Performance-Focused Reviews
+```
+CUSTOM_PROMPT: "You are a performance optimization expert. Review the code changes for potential performance issues, inefficient algorithms, memory leaks, and optimization opportunities. Suggest specific improvements with examples. Start every suggestion with the file path between @@ markers."
+```
+
+#### General Best Practices (Default)
+```
+CUSTOM_PROMPT: "You are an experienced code reviewer. Analyze the code changes and provide suggestions for improving code quality, following best practices, and maintaining consistency. Include examples where helpful. Start every suggestion with the file path between @@ markers."
+```
+
+---
+
+## 🔧 Advanced Configuration
+
+### Multiple AI Models
+```yml
+strategy:
+  matrix:
+    model: [gpt-3.5-turbo, gpt-4]
+steps:
+  - name: ChatGPT Review (${{ matrix.model }})
+    uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+    with:
+      model: ${{ matrix.model }}
+```
+
+### Conditional Execution
+```yml
+# Only run on specific file types
+- name: ChatGPT Review
+  if: contains(github.event.pull_request.changed_files, '.php') || contains(github.event.pull_request.changed_files, '.js')
+  uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+```
+
+### Different Prompts for Different Paths
+```yml
+# Backend-focused review
+- name: Backend Review
+  if: contains(github.event.pull_request.changed_files, 'backend/')
+  uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+  env:
+    CUSTOM_PROMPT: "Focus on backend code quality, database interactions, API design, and security..."
+
+# Frontend-focused review  
+- name: Frontend Review
+  if: contains(github.event.pull_request.changed_files, 'frontend/')
+  uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+  env:
+    CUSTOM_PROMPT: "Focus on frontend code quality, React best practices, performance, and accessibility..."
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### 1. Comments Not Appearing on Lines
+**Problem:** Comments appear as general PR comments instead of inline  
+**Solution:** Ensure you're using v1.1.0+ which includes enhanced line targeting
+
+#### 2. "Resource not accessible by integration" Error
+**Problem:** GitHub API permissions error  
+**Solution:** Add these permissions to your workflow:
+```yml
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+```
+
+#### 3. OpenAI API Rate Limits
+**Problem:** Too many requests to OpenAI  
+**Solution:** 
+- Use a lower `max_tokens` value
+- Consider upgrading your OpenAI plan
+- Add delays between large PR reviews
+
+#### 4. Action Not Triggering
+**Problem:** Workflow doesn't run on PRs  
+**Solution:** 
+- Check that Actions are enabled in repository settings
+- Verify workflow file is in `.github/workflows/` directory
+- Ensure proper YAML syntax
+
+### Debug Mode
+
+Enable detailed logging by setting debug mode in your workflow:
+
+```yml
+steps:
+  - name: Enable Debug Logging
+    run: echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
+    
+  - name: ChatGPT Review
+    uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+    # ... rest of config
+```
+
+---
+
+## 📊 Version History
+
+### v1.1.0 (Latest)
+- ✅ **Fixed:** Comments now appear on correct lines instead of file tops
+- ✅ **Enhanced:** Multi-strategy line targeting with fallback approaches
+- ✅ **Added:** Detailed logging for better debugging
+- ✅ **Improved:** Error handling and API interaction
+
+### v1.0.0
+- ✅ **Added:** Custom prompt support via `CUSTOM_PROMPT` environment variable
+- ✅ **Enhanced:** Better configuration management
+- ✅ **Improved:** Documentation and examples
+
+### Original (magnificode-ltd)
+- ✅ **Base:** Core ChatGPT code review functionality
+- ✅ **Features:** OpenAI integration, GitHub API interaction
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork this repository**
+2. **Create a feature branch:** `git checkout -b feature/amazing-feature`
+3. **Make your changes** and test them thoroughly
+4. **Commit your changes:** `git commit -m 'Add amazing feature'`
+5. **Push to the branch:** `git push origin feature/amazing-feature`
+6. **Open a Pull Request**
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/abdullahessam/chatgpt-code-reviewer.git
+cd chatgpt-code-reviewer
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Test locally (requires .env file with API keys)
+npm test
+```
+
+### Testing Your Changes
+
+Before submitting a PR, test your changes:
+
+1. **Create a test repository** with this action configured
+2. **Make code changes** in a new branch
+3. **Open a PR** and verify the action runs correctly
+4. **Check comment placement** and content quality
+
+---
+
+## 📝 Dependencies
+
+- **@actions/core:** GitHub Actions toolkit for workflow integration
+- **@actions/github:** GitHub REST API interaction library
+- **openai:** Official OpenAI API client library
+- **gpt-3-encoder:** Token counting and text chunking utility
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **Original Project:** [magnificode-ltd/chatgpt-code-reviewer](https://github.com/magnificode-ltd/chatgpt-code-reviewer) - Thanks for the solid foundation!
+- **OpenAI:** For providing the GPT models that power this tool
+- **GitHub:** For the Actions platform and API
+- **Community:** For feedback, issues, and contributions
+
+### About MagnifiCode (Original Authors)
 
 <a href="https://bit.ly/3nXn4EN">
    <img src='docs/images/logo.png' alt='MagnifiCode'/>
 </a>
 
-This repository was created & is maintained by MagnifiCode. We provide web development services. We specialize in React/Node/AWS (etc) and are available for [hire](https://bit.ly/3IcWXR3). Learn more about us on our [website](https://bit.ly/3nXn4EN).
+The original repository was created & maintained by MagnifiCode. They provide web development services specializing in React/Node/AWS and are available for [hire](https://bit.ly/3IcWXR3). Learn more about them on their [website](https://bit.ly/3nXn4EN).
 
-Follow us on [Twitter](https://twitter.com/magnificodehq) and [LinkedIn](https://www.linkedin.com/company/magnificode-software) for more updates.
-
----
-
-### Known Issues
-
-Currently we add comments for a specific patch on the first line of the patch, so you may see a suggestion a bit higher on the file than it should be.
-In future versions we want to fix this. See our issues page for other issues.
-If you found any issue that's not in the issues area, feel free to create one and submit PRs.
+Follow them on [Twitter](https://twitter.com/magnificodehq) and [LinkedIn](https://www.linkedin.com/company/magnificode-software) for more updates.
 
 ---
 
-### Dependencies
+## 📞 Support
 
-- @actions/github: A GitHub Actions toolkit for interacting with the GitHub REST API.
-- openai: A library for interacting with the OpenAI API.
+### Getting Help
+
+1. **Check the [Issues](https://github.com/abdullahessam/chatgpt-code-reviewer/issues)** for existing solutions
+2. **Read the troubleshooting section** above
+3. **Review the [original repository](https://github.com/magnificode-ltd/chatgpt-code-reviewer)** for additional context
+
+### Reporting Issues
+
+When reporting issues, please include:
+- Your workflow configuration (remove sensitive data)
+- Error messages from the Actions log
+- Steps to reproduce the problem
+- Expected vs actual behavior
+
+### Feature Requests
+
+Have an idea for improvement? Open an issue with:
+- Clear description of the feature
+- Use case and benefits
+- Possible implementation approach
+
+---
+
+**⭐ If this action helped your project, please consider giving it a star!**
+
+> Built with ❤️ by [Abdullah Essam](https://github.com/abdullahessam)  
+> Enhanced from the original work by [MagnifiCode](https://github.com/magnificode-ltd)
