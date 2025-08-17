@@ -78,7 +78,6 @@ class CommentOnPullRequestService {
     const lastCommitId = await this.getLastCommit();
 
     for (const file of files) {
-      const patchInfo = parsePatchForChanges(file.patch);
       const suggestionForFile = suggestionsByFile.find(
         (suggestion) => suggestion.filename === file.filename,
       );
@@ -88,59 +87,15 @@ class CommentOnPullRequestService {
           const consoleTimeLabel = `Comment was created successfully for file: ${file.filename}`;
           console.time(consoleTimeLabel);
 
-          // Determine the best line to comment on
-          let targetLine = patchInfo.firstChangedLine;
-          
-          // If we have specific added lines, use the first one
-          if (patchInfo.addedLines.length > 0) {
-            targetLine = patchInfo.addedLines[0];
-          } else if (patchInfo.modifiedLines.length > 0) {
-            targetLine = patchInfo.modifiedLines[0];
-          }
+          // Try different strategies to place the comment on the right line
+          const success = await this.tryCreateLineComment(
+            file,
+            suggestionForFile,
+            { owner, repo, pullNumber, lastCommitId }
+          );
 
-          console.log(`Attempting to comment on line ${targetLine} for file ${file.filename}`);
-
-          try {
-            await this.octokitApi.rest.pulls.createReviewComment({
-              owner,
-              repo,
-              pull_number: pullNumber,
-              line: targetLine,
-              path: suggestionForFile.filename,
-              body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
-              commit_id: lastCommitId,
-            });
-          } catch (lineError: any) {
-            console.warn(`Failed to create line comment for ${file.filename} at line ${targetLine}:`, lineError.message);
-            
-            // Try using the side parameter for better compatibility
-            try {
-              await this.octokitApi.rest.pulls.createReviewComment({
-                owner,
-                repo,
-                pull_number: pullNumber,
-                line: targetLine,
-                side: 'RIGHT',
-                path: suggestionForFile.filename,
-                body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
-                commit_id: lastCommitId,
-              });
-            } catch (sideError: any) {
-              console.warn(`Failed to create side comment, falling back to patch start line:`, sideError.message);
-              
-              // Final fallback: use the patch start line
-              const patchStartLine = this.extractPatchStartLine(file.patch);
-              
-              await this.octokitApi.rest.pulls.createReviewComment({
-                owner,
-                repo,
-                pull_number: pullNumber,
-                line: patchStartLine,
-                path: suggestionForFile.filename,
-                body: `[ChatGPTReviewer]\n${suggestionForFile.suggestionText}`,
-                commit_id: lastCommitId,
-              });
-            }
+          if (!success) {
+            console.warn(`All line comment strategies failed for ${file.filename}, this should not happen`);
           }
 
           console.timeEnd(consoleTimeLabel);
@@ -155,12 +110,151 @@ class CommentOnPullRequestService {
     }
   }
 
-  private extractPatchStartLine(patch: string): number {
-    const lineHeaderRegExp = /^@@ -\d+,\d+ \+(\d+),(\d+) @@/;
-    const lines = patch.split('\n');
-    const lineHeaderMatch = lines[0].match(lineHeaderRegExp);
+  private async tryCreateLineComment(
+    file: FilenameWithPatch,
+    suggestion: any,
+    context: { owner: string; repo: string; pullNumber: number; lastCommitId: string }
+  ): Promise<boolean> {
+    const { owner, repo, pullNumber, lastCommitId } = context;
     
-    return lineHeaderMatch ? parseInt(lineHeaderMatch[1], 10) : 1;
+    // Parse the patch to get line information
+    const validLines = this.getValidCommentLines(file.patch);
+    
+    console.log(`Valid comment lines for ${file.filename}:`, validLines);
+    
+    // Strategy 1: Try the first added line
+    for (const lineInfo of validLines) {
+      if (lineInfo.type === 'added') {
+        try {
+          console.log(`Trying to comment on added line ${lineInfo.lineNumber} in ${file.filename}`);
+          
+          await this.octokitApi.rest.pulls.createReviewComment({
+            owner,
+            repo,
+            pull_number: pullNumber,
+            line: lineInfo.lineNumber,
+            path: file.filename,
+            body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
+            commit_id: lastCommitId,
+          });
+          
+          console.log(`✅ Successfully commented on line ${lineInfo.lineNumber}`);
+          return true;
+        } catch (error: any) {
+          console.warn(`❌ Failed to comment on added line ${lineInfo.lineNumber}:`, error.message);
+        }
+      }
+    }
+    
+    // Strategy 2: Try the first modified line (if no added lines worked)
+    for (const lineInfo of validLines) {
+      if (lineInfo.type === 'modified') {
+        try {
+          console.log(`Trying to comment on modified line ${lineInfo.lineNumber} in ${file.filename}`);
+          
+          await this.octokitApi.rest.pulls.createReviewComment({
+            owner,
+            repo,
+            pull_number: pullNumber,
+            line: lineInfo.lineNumber,
+            path: file.filename,
+            body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
+            commit_id: lastCommitId,
+          });
+          
+          console.log(`✅ Successfully commented on modified line ${lineInfo.lineNumber}`);
+          return true;
+        } catch (error: any) {
+          console.warn(`❌ Failed to comment on modified line ${lineInfo.lineNumber}:`, error.message);
+        }
+      }
+    }
+    
+    // Strategy 3: Try any valid line from the patch
+    for (const lineInfo of validLines) {
+      try {
+        console.log(`Trying to comment on any valid line ${lineInfo.lineNumber} in ${file.filename}`);
+        
+        await this.octokitApi.rest.pulls.createReviewComment({
+          owner,
+          repo,
+          pull_number: pullNumber,
+          line: lineInfo.lineNumber,
+          path: file.filename,
+          body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
+          commit_id: lastCommitId,
+        });
+        
+        console.log(`✅ Successfully commented on line ${lineInfo.lineNumber}`);
+        return true;
+      } catch (error: any) {
+        console.warn(`❌ Failed to comment on line ${lineInfo.lineNumber}:`, error.message);
+      }
+    }
+    
+    return false;
+  }
+
+  private getValidCommentLines(patch: string): Array<{lineNumber: number, type: 'added' | 'modified' | 'context'}> {
+    const lines = patch.split('\n');
+    const lineHeaderRegExp = /^@@ -\d+,\d+ \+(\d+),(\d+) @@/;
+    const validLines: Array<{lineNumber: number, type: 'added' | 'modified' | 'context'}> = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineHeaderMatch = line.match(lineHeaderRegExp);
+      
+      if (lineHeaderMatch) {
+        let currentNewLineNumber = parseInt(lineHeaderMatch[1], 10);
+        
+        // Parse the content after the header
+        for (let j = i + 1; j < lines.length; j++) {
+          const patchLine = lines[j];
+          
+          // Stop if we hit another patch header or end of patch
+          if (patchLine.startsWith('@@')) {
+            break;
+          }
+          
+          // Skip file headers
+          if (patchLine.startsWith('+++') || patchLine.startsWith('---')) {
+            continue;
+          }
+          
+          if (patchLine.startsWith('+')) {
+            // Added line - these are usually the best for comments
+            validLines.push({
+              lineNumber: currentNewLineNumber,
+              type: 'added'
+            });
+            currentNewLineNumber++;
+          } else if (patchLine.startsWith('-')) {
+            // Removed line - check if next line is an addition (modification)
+            if (j + 1 < lines.length && lines[j + 1].startsWith('+')) {
+              validLines.push({
+                lineNumber: currentNewLineNumber,
+                type: 'modified'
+              });
+            }
+            // Don't increment line number for removed lines
+          } else if (patchLine.startsWith(' ')) {
+            // Context line - these can also be used for comments
+            validLines.push({
+              lineNumber: currentNewLineNumber,
+              type: 'context'
+            });
+            currentNewLineNumber++;
+          } else if (patchLine.trim() === '') {
+            // Empty line
+            currentNewLineNumber++;
+          }
+        }
+        
+        break; // Process only the first patch section for now
+      }
+    }
+    
+    return validLines;
   }
 
   public async addCommentToPr() {

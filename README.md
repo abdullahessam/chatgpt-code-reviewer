@@ -31,6 +31,12 @@ To use this github action, you will need to have a GitHub account and an OpenAI 
    name: chatgpt-code-reviewer
    run-name: chatgpt-code-reviewer
    on: [pull_request]
+   
+   permissions:
+     contents: read
+     pull-requests: write
+     issues: write
+   
    jobs:
      chatgpt-code-reviewer:
        runs-on: ubuntu-latest
