@@ -13,6 +13,7 @@ An intelligent GitHub action that adds ChatGPT-powered code review comments dire
 - **🔄 Enhanced Fallback Strategies** - Multiple approaches to ensure comments are placed correctly
 - **📊 Detailed Logging** - Better debugging information for troubleshooting
 - **⚡ Improved Error Handling** - More robust API interaction with GitHub
+- **📋 Smart Large File Handling** - Informative PR comments when files exceed token limits
 
 ### 📋 **Core Features:**
 - **Instant Code Reviews** - Get feedback immediately when PRs are created
@@ -20,6 +21,7 @@ An intelligent GitHub action that adds ChatGPT-powered code review comments dire
 - **Best Practices Focus** - Suggestions based on coding standards and patterns
 - **Multiple AI Models** - Support for different OpenAI models
 - **Token Management** - Handles large files with intelligent chunking
+- **Transparent Processing** - Clear feedback when files are skipped with actionable recommendations
 
 ## 📸 Example
 
@@ -73,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: ChatGPT Review
-        uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+        uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
         with:
           model: gpt-3.5-turbo  # Optional: gpt-4, gpt-3.5-turbo
           max_tokens: 4096      # Optional: Adjust based on needs
@@ -107,6 +109,7 @@ Ensure your repository has these settings:
 | `GITHUB_TOKEN` | GitHub access token (auto-provided) | ✅ Yes | `${{ secrets.GITHUB_TOKEN }}` |
 | `OPENAI_API_KEY` | Your OpenAI API key | ✅ Yes | `sk-proj-...` |
 | `CUSTOM_PROMPT` | Custom review instructions | ❌ No | See examples below |
+| `SHOW_SKIPPED_FILES_COMMENT` | Show PR comment for large files | ❌ No | `true` (default) |
 
 ### Custom Prompt Examples
 
@@ -136,7 +139,7 @@ strategy:
     model: [gpt-3.5-turbo, gpt-4]
 steps:
   - name: ChatGPT Review (${{ matrix.model }})
-    uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+    uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
     with:
       model: ${{ matrix.model }}
 ```
@@ -146,22 +149,23 @@ steps:
 # Only run on specific file types
 - name: ChatGPT Review
   if: contains(github.event.pull_request.changed_files, '.php') || contains(github.event.pull_request.changed_files, '.js')
-  uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+  uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
 ```
 
 ### Different Prompts for Different Paths
 ```yml
 # Backend-focused review
+# Backend-focused review
 - name: Backend Review
   if: contains(github.event.pull_request.changed_files, 'backend/')
-  uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+  uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
   env:
     CUSTOM_PROMPT: "Focus on backend code quality, database interactions, API design, and security..."
 
 # Frontend-focused review  
 - name: Frontend Review
   if: contains(github.event.pull_request.changed_files, 'frontend/')
-  uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+  uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
   env:
     CUSTOM_PROMPT: "Focus on frontend code quality, React best practices, performance, and accessibility..."
 ```
@@ -210,7 +214,7 @@ steps:
     run: echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
     
   - name: ChatGPT Review
-    uses: abdullahessam/chatgpt-code-reviewer@v1.1.0
+    uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
     # ... rest of config
 ```
 
@@ -218,7 +222,20 @@ steps:
 
 ## 📊 Version History
 
-### v1.1.0 (Latest)
+### v1.3.0 (Latest)
+- ✅ **Added:** Informative PR comments for files that exceed token limits
+- ✅ **Enhanced:** Smart large file handling with clear explanations
+- ✅ **New:** `SHOW_SKIPPED_FILES_COMMENT` environment variable for control
+- ✅ **Improved:** Better logging with emojis and detailed information
+- ✅ **Fixed:** Proper dependency bundling for GitHub Actions runtime
+
+### v1.2.0
+- ✅ **Enhanced:** Comprehensive documentation with setup guides
+- ✅ **Added:** Custom prompt examples for different review types
+- ✅ **Improved:** Troubleshooting section and contribution guidelines
+- ✅ **Updated:** Proper attribution to original repository
+
+### v1.1.0
 - ✅ **Fixed:** Comments now appear on correct lines instead of file tops
 - ✅ **Enhanced:** Multi-strategy line targeting with fallback approaches
 - ✅ **Added:** Detailed logging for better debugging
