@@ -13,6 +13,7 @@ import parseOpenAISuggestions from './utils/parseOpenAISuggestions';
 
 const MAX_TOKENS = parseInt(getInput('max_tokens'), 10) || 4096;
 const OPENAI_TIMEOUT = 20000;
+const SHOW_SKIPPED_FILES_COMMENT = process.env.SHOW_SKIPPED_FILES_COMMENT !== 'false'; // Default to true
 
 class CommentOnPullRequestService {
   private readonly octokitApi: Octokit;
@@ -257,6 +258,46 @@ class CommentOnPullRequestService {
     return validLines;
   }
 
+  private async createSkippedFilesComment(filesTooLong: string[]) {
+    const { owner, repo, pullNumber } = this.pullRequest;
+    
+    const fileList = filesTooLong.map(file => `- \`${file}\``).join('\n');
+    const tokenLimit = Math.floor(MAX_TOKENS / 2);
+    
+    const commentBody = `## 🤖 ChatGPT Code Review - Files Skipped
+
+The following **${filesTooLong.length}** file(s) were skipped from automated review because they exceed the token limit (**${tokenLimit}** tokens):
+
+${fileList}
+
+**Why this happens:**
+- Large files require more processing time and API costs
+- The current limit is set to half of the configured \`max_tokens\` (${MAX_TOKENS})
+- This helps ensure the review stays focused and efficient
+
+**Recommendations:**
+- 🔧 **Refactor**: Consider breaking down large files into smaller, more focused modules
+- 👀 **Manual Review**: These files should be reviewed manually for best practices
+- 📊 **Architecture**: Large files may indicate areas where refactoring could improve maintainability
+
+**Configuration:**
+You can adjust the \`max_tokens\` parameter in your workflow or set \`SHOW_SKIPPED_FILES_COMMENT=false\` to hide this message.
+
+*This is an automated message from [ChatGPT Code Reviewer](https://github.com/abdullahessam/chatgpt-code-reviewer)*`;
+
+    try {
+      await this.octokitApi.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: pullNumber,
+        body: commentBody,
+      });
+      console.log(`✅ Created informational comment for ${filesTooLong.length} skipped files`);
+    } catch (error) {
+      console.error('❌ Failed to create skipped files comment:', error);
+    }
+  }
+
   public async addCommentToPr() {
     const { files } = await this.getBranchDiff();
 
@@ -277,22 +318,36 @@ class CommentOnPullRequestService {
           tokensUsed: encode(file.patch).length,
         });
       } else {
-        filesTooLongToBeChecked.push(file.filename);
+        filesTooLongToBeChecked.push(file.filename || 'unknown file');
       }
     }
 
+    // Log to console for debugging
     if (filesTooLongToBeChecked.length > 0) {
       console.log(
-        `The changes for ${filesTooLongToBeChecked.join(
+        `📊 The changes for ${filesTooLongToBeChecked.join(
           ', ',
-        )} is too long to be checked.`,
+        )} is too long to be checked (exceeds ${MAX_TOKENS / 2} tokens).`,
       );
+      
+      // Create an informational comment in the PR (if enabled)
+      if (SHOW_SKIPPED_FILES_COMMENT) {
+        await this.createSkippedFilesComment(filesTooLongToBeChecked);
+      }
+    }
+
+    // Only proceed if there are files to review
+    if (patchesList.length === 0) {
+      console.log('ℹ️ No files to review - all files were too large or had no changes');
+      return;
     }
 
     const listOfFilesByTokenRange = divideFilesByTokenRange(
       MAX_TOKENS / 2,
       patchesList,
     );
+
+    console.log(`🔍 Processing ${patchesList.length} files in ${listOfFilesByTokenRange.length} batches`);
 
     await this.createReviewComments(listOfFilesByTokenRange[0]);
 
@@ -305,6 +360,7 @@ class CommentOnPullRequestService {
           return;
         }
 
+        console.log(`🔄 Processing batch ${requestCount + 1}/${listOfFilesByTokenRange.length}`);
         await this.createReviewComments(listOfFilesByTokenRange[requestCount]);
         requestCount += 1;
       }, OPENAI_TIMEOUT);
