@@ -14,11 +14,34 @@ const getOpenAiSuggestions = async (patch: string): Promise<any> => {
     );
   }
 
+  // � Validate configuration before making request
+  console.log('� ===== VALIDATING CONFIGURATION =====');
+  
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY environment variable is not set');
+  }
+  
+  const apiKeyPreview = process.env.OPENAI_API_KEY.substring(0, 7) + '...';
+  console.log(`� API Key format: ${apiKeyPreview} (length: ${process.env.OPENAI_API_KEY.length})`);
+  
+  if (!process.env.OPENAI_API_KEY.startsWith('sk-')) {
+    console.warn('⚠️ Warning: API key does not start with "sk-" - this might be invalid');
+  }
+  
+  if (!OPENAI_MODEL) {
+    throw new Error('Model is not specified');
+  }
+  
+  console.log(`🤖 Model: ${OPENAI_MODEL}`);
+  console.log(`🎯 Max Tokens: ${MAX_TOKENS}`);
+  
+  if (MAX_TOKENS < 1 || MAX_TOKENS > 128000) {
+    throw new Error(`Invalid max_tokens value: ${MAX_TOKENS}. Must be between 1 and 128000`);
+  }
+
   // 📊 Log detailed information about what's being sent to OpenAI
   console.log('🚀 ===== OPENAI REQUEST DETAILS =====');
   console.log(`📅 Timestamp: ${new Date().toISOString()}`);
-  console.log(`🤖 Model: ${OPENAI_MODEL}`);
-  console.log(`🎯 Max Tokens: ${MAX_TOKENS}`);
   console.log(`📏 Patch Length: ${patch.length} characters`);
   console.log(`🔢 Estimated Tokens: ~${Math.ceil(patch.length / 4)} tokens`);
   
@@ -41,6 +64,34 @@ const getOpenAiSuggestions = async (patch: string): Promise<any> => {
     ],
   };
 
+  // 🔍 Validate request body before sending
+  console.log('🔍 ===== VALIDATING REQUEST BODY =====');
+  
+  if (!requestBody.model || requestBody.model.trim() === '') {
+    throw new Error('Model cannot be empty');
+  }
+  
+  if (!requestBody.messages || requestBody.messages.length === 0) {
+    throw new Error('Messages array cannot be empty');
+  }
+  
+  const systemMessage = requestBody.messages.find(m => m.role === 'system');
+  const userMessage = requestBody.messages.find(m => m.role === 'user');
+  
+  if (!systemMessage || !systemMessage.content) {
+    throw new Error('System message is missing or empty');
+  }
+  
+  if (!userMessage || !userMessage.content) {
+    throw new Error('User message is missing or empty');
+  }
+  
+  console.log(`✅ Model: ${requestBody.model}`);
+  console.log(`✅ Max tokens: ${requestBody.max_tokens}`);
+  console.log(`✅ System message length: ${systemMessage.content.length} chars`);
+  console.log(`✅ User message length: ${userMessage.content.length} chars`);
+  console.log(`✅ Total messages: ${requestBody.messages.length}`);
+
   console.log('📦 Full Request Body:');
   console.log(JSON.stringify(requestBody, null, 2));
   console.log('🚀 ===== SENDING REQUEST TO OPENAI =====');
@@ -50,7 +101,7 @@ const getOpenAiSuggestions = async (patch: string): Promise<any> => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer  ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify(requestBody),
     });
@@ -59,7 +110,19 @@ const getOpenAiSuggestions = async (patch: string): Promise<any> => {
     
     if (!response.ok) {
       console.error(`❌ OpenAI API Error: ${response.status} - ${response.statusText}`);
-      throw new Error(`Failed to post data: ${response.status} ${response.statusText}`);
+      
+      // Try to get the detailed error response
+      let errorDetails = '';
+      try {
+        const errorResponse = await response.text();
+        console.error('📋 Detailed Error Response:');
+        console.error(errorResponse);
+        errorDetails = ` - ${errorResponse}`;
+      } catch (parseError) {
+        console.error('Failed to parse error response:', parseError);
+      }
+      
+      throw new Error(`OpenAI API Error: ${response.status} ${response.statusText}${errorDetails}`);
     }
 
     const responseJson = (await response.json()) as any;
