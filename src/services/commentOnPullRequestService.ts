@@ -71,10 +71,35 @@ class CommentOnPullRequestService {
   }
 
   private async createReviewComments(files: FilenameWithPatch[]) {
-    const suggestionsListText = await getOpenAiSuggestions(
-      concatenatePatchesToString(files),
-    );
+    // 📊 Log detailed information about files being processed
+    console.log('🔍 ===== REVIEW BATCH PROCESSING =====');
+    console.log(`📅 Processing started at: ${new Date().toISOString()}`);
+    console.log(`📁 Number of files in this batch: ${files.length}`);
+    
+    files.forEach((file, index) => {
+      console.log(`  ${index + 1}. 📄 File: ${file.filename}`);
+      console.log(`     🔢 Token count: ${file.tokensUsed}`);
+      console.log(`     📏 Patch length: ${file.patch.length} characters`);
+    });
+
+    const totalTokens = files.reduce((sum, file) => sum + file.tokensUsed, 0);
+    console.log(`🔢 Total tokens in batch: ${totalTokens}`);
+    
+    const concatenatedPatch = concatenatePatchesToString(files);
+    console.log(`📦 Concatenated patch length: ${concatenatedPatch.length} characters`);
+    console.log('🚀 Sending to OpenAI...');
+
+    const suggestionsListText = await getOpenAiSuggestions(concatenatedPatch);
+    
+    console.log('🎯 ===== PARSING AI SUGGESTIONS =====');
     const suggestionsByFile = parseOpenAISuggestions(suggestionsListText);
+    console.log(`📋 Parsed ${suggestionsByFile.length} file suggestions from AI response`);
+    
+    suggestionsByFile.forEach((suggestion, index) => {
+      console.log(`  ${index + 1}. 📄 Suggestion for: ${suggestion.filename}`);
+      console.log(`     💬 Comment: ${suggestion.suggestionText.substring(0, 100)}...`);
+    });
+
     const { owner, repo, pullNumber } = this.pullRequest;
     const lastCommitId = await this.getLastCommit();
 
@@ -299,6 +324,9 @@ You can adjust the \`max_tokens\` parameter in your workflow or set \`SHOW_SKIPP
   }
 
   public async addCommentToPr() {
+    console.log('🚀 ===== CHATGPT CODE REVIEWER STARTED =====');
+    console.log(`📅 Started at: ${new Date().toISOString()}`);
+    
     const { files } = await this.getBranchDiff();
 
     if (!files) {
@@ -307,19 +335,43 @@ You can adjust the \`max_tokens\` parameter in your workflow or set \`SHOW_SKIPP
       );
     }
 
+    console.log(`📁 Total files changed in PR: ${files.length}`);
+    
     const patchesList: FilenameWithPatch[] = [];
     const filesTooLongToBeChecked: string[] = [];
+    const tokenLimit = MAX_TOKENS / 2;
+
+    console.log(`🔢 Token limit per file: ${tokenLimit}`);
+    console.log('📊 ===== FILE ANALYSIS =====');
 
     for (const file of files) {
-      if (file.patch && encode(file.patch).length <= MAX_TOKENS / 2) {
+      const fileTokens = file.patch ? encode(file.patch).length : 0;
+      console.log(`📄 ${file.filename}:`);
+      console.log(`  📏 Patch length: ${file.patch?.length || 0} characters`);
+      console.log(`  🔢 Estimated tokens: ${fileTokens}`);
+      
+      if (file.patch && fileTokens <= tokenLimit) {
+        console.log(`  ✅ INCLUDED - Within token limit`);
         patchesList.push({
           filename: file.filename,
           patch: file.patch,
           tokensUsed: encode(file.patch).length,
         });
       } else {
+        console.log(`  ❌ SKIPPED - Exceeds token limit (${fileTokens} > ${tokenLimit})`);
         filesTooLongToBeChecked.push(file.filename || 'unknown file');
       }
+    }
+
+    console.log('📊 ===== PROCESSING SUMMARY =====');
+    console.log(`✅ Files to review: ${patchesList.length}`);
+    console.log(`❌ Files skipped: ${filesTooLongToBeChecked.length}`);
+    
+    if (filesTooLongToBeChecked.length > 0) {
+      console.log('📋 Skipped files:');
+      filesTooLongToBeChecked.forEach((filename, index) => {
+        console.log(`  ${index + 1}. ${filename}`);
+      });
     }
 
     // Log to console for debugging
