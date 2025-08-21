@@ -55,9 +55,20 @@ const getOpenAiSuggestions = async (patch: string): Promise<any> => {
   console.log(patch);
   console.log('--- END PATCH ---');
 
+  // 🔧 Determine the correct token parameter based on model
+  const isLegacyModel = OPENAI_MODEL.includes('gpt-3.5-turbo-instruct') || 
+                       OPENAI_MODEL.includes('text-davinci') ||
+                       OPENAI_MODEL.includes('text-curie') ||
+                       OPENAI_MODEL.includes('text-babbage') ||
+                       OPENAI_MODEL.includes('text-ada');
+  
+  const tokenParam = isLegacyModel ? 'max_tokens' : 'max_completion_tokens';
+  
+  console.log(`🔧 Using token parameter: ${tokenParam} (model: ${OPENAI_MODEL})`);
+
   const requestBody = {
     model: OPENAI_MODEL,
-    max_tokens: MAX_TOKENS,
+    [tokenParam]: MAX_TOKENS,
     messages: [
       { role: 'system', content: promptsConfig[Prompt.SYSTEM_PROMPT] },
       { role: 'user', content: patch },
@@ -87,7 +98,7 @@ const getOpenAiSuggestions = async (patch: string): Promise<any> => {
   }
   
   console.log(`✅ Model: ${requestBody.model}`);
-  console.log(`✅ Max tokens: ${requestBody.max_tokens}`);
+  console.log(`✅ ${tokenParam}: ${requestBody[tokenParam]}`);
   console.log(`✅ System message length: ${systemMessage.content.length} chars`);
   console.log(`✅ User message length: ${userMessage.content.length} chars`);
   console.log(`✅ Total messages: ${requestBody.messages.length}`);
