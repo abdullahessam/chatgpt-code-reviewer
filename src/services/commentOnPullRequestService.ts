@@ -110,6 +110,9 @@ class CommentOnPullRequestService {
 
       if (suggestionForFile) {
         try {
+          console.log(`🎯 ===== PROCESSING SUGGESTION FOR ${file.filename} =====`);
+          console.log(`💬 Suggestion text: ${suggestionForFile.suggestionText.substring(0, 200)}...`);
+          
           const consoleTimeLabel = `Comment was created successfully for file: ${file.filename}`;
           console.time(consoleTimeLabel);
 
@@ -121,17 +124,34 @@ class CommentOnPullRequestService {
           );
 
           if (!success) {
-            console.warn(`All line comment strategies failed for ${file.filename}, this should not happen`);
+            console.error(`❌ All comment strategies failed for ${file.filename}`);
+          } else {
+            console.log(`✅ Successfully processed ${file.filename}`);
           }
 
           console.timeEnd(consoleTimeLabel);
         } catch (error) {
           console.error(
-            `An error occurred while trying to add a comment to ${file.filename}:`,
+            `💥 FATAL ERROR while trying to add a comment to ${file.filename}:`,
             error,
           );
+          
+          // Log additional context for debugging
+          console.error(`📋 File details:`, {
+            filename: file.filename,
+            patchLength: file.patch?.length,
+            tokensUsed: file.tokensUsed
+          });
+          
+          console.error(`📋 Suggestion details:`, {
+            filename: suggestionForFile.filename,
+            suggestionLength: suggestionForFile.suggestionText?.length
+          });
+          
           // Don't throw here, continue with other files
         }
+      } else {
+        console.warn(`⚠️ No AI suggestion found for file: ${file.filename}`);
       }
     }
   }
@@ -143,88 +163,126 @@ class CommentOnPullRequestService {
   ): Promise<boolean> {
     const { owner, repo, pullNumber, lastCommitId } = context;
     
+    console.log(`🎯 ===== ATTEMPTING TO COMMENT ON ${file.filename} =====`);
+    
     // Parse the patch to get line information
     const validLines = this.getValidCommentLines(file.patch);
     
-    console.log(`Valid comment lines for ${file.filename}:`, validLines);
+    if (validLines.length === 0) {
+      console.warn(`❌ No valid comment lines found for ${file.filename}`);
+      // Try to create a general PR comment as fallback
+      return await this.createGeneralPRComment(file, suggestion, context);
+    }
+    
+    console.log(`📍 Valid comment lines for ${file.filename}:`, validLines.map(l => `${l.lineNumber}(${l.type})`).join(', '));
     
     // Strategy 1: Try the first added line
-    for (const lineInfo of validLines) {
-      if (lineInfo.type === 'added') {
-        try {
-          console.log(`Trying to comment on added line ${lineInfo.lineNumber} in ${file.filename}`);
-          
-          await this.octokitApi.rest.pulls.createReviewComment({
-            owner,
-            repo,
-            pull_number: pullNumber,
-            line: lineInfo.lineNumber,
-            path: file.filename,
-            body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
-            commit_id: lastCommitId,
-          });
-          
-          console.log(`✅ Successfully commented on line ${lineInfo.lineNumber}`);
-          return true;
-        } catch (error: any) {
-          console.warn(`❌ Failed to comment on added line ${lineInfo.lineNumber}:`, error.message);
-        }
-      }
+    const addedLines = validLines.filter(l => l.type === 'added');
+    for (const lineInfo of addedLines) {
+      const success = await this.attemptLineComment(file, suggestion, lineInfo, context, 'added line');
+      if (success) return true;
     }
     
     // Strategy 2: Try the first modified line (if no added lines worked)
-    for (const lineInfo of validLines) {
-      if (lineInfo.type === 'modified') {
-        try {
-          console.log(`Trying to comment on modified line ${lineInfo.lineNumber} in ${file.filename}`);
-          
-          await this.octokitApi.rest.pulls.createReviewComment({
-            owner,
-            repo,
-            pull_number: pullNumber,
-            line: lineInfo.lineNumber,
-            path: file.filename,
-            body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
-            commit_id: lastCommitId,
-          });
-          
-          console.log(`✅ Successfully commented on modified line ${lineInfo.lineNumber}`);
-          return true;
-        } catch (error: any) {
-          console.warn(`❌ Failed to comment on modified line ${lineInfo.lineNumber}:`, error.message);
-        }
-      }
+    const modifiedLines = validLines.filter(l => l.type === 'modified');
+    for (const lineInfo of modifiedLines) {
+      const success = await this.attemptLineComment(file, suggestion, lineInfo, context, 'modified line');
+      if (success) return true;
     }
     
     // Strategy 3: Try any valid line from the patch
-    for (const lineInfo of validLines) {
-      try {
-        console.log(`Trying to comment on any valid line ${lineInfo.lineNumber} in ${file.filename}`);
-        
-        await this.octokitApi.rest.pulls.createReviewComment({
-          owner,
-          repo,
-          pull_number: pullNumber,
-          line: lineInfo.lineNumber,
-          path: file.filename,
-          body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
-          commit_id: lastCommitId,
-        });
-        
-        console.log(`✅ Successfully commented on line ${lineInfo.lineNumber}`);
-        return true;
-      } catch (error: any) {
-        console.warn(`❌ Failed to comment on line ${lineInfo.lineNumber}:`, error.message);
-      }
+    const contextLines = validLines.filter(l => l.type === 'context');
+    for (const lineInfo of contextLines) {
+      const success = await this.attemptLineComment(file, suggestion, lineInfo, context, 'context line');
+      if (success) return true;
     }
     
-    return false;
+    // Strategy 4: If all line-specific comments fail, create a general PR comment
+    console.warn(`⚠️ All line comment strategies failed for ${file.filename}, creating general PR comment`);
+    return await this.createGeneralPRComment(file, suggestion, context);
+  }
+
+  private async attemptLineComment(
+    file: FilenameWithPatch,
+    suggestion: any,
+    lineInfo: {lineNumber: number, type: string},
+    context: { owner: string; repo: string; pullNumber: number; lastCommitId: string },
+    strategy: string
+  ): Promise<boolean> {
+    const { owner, repo, pullNumber, lastCommitId } = context;
+    
+    try {
+      console.log(`🎯 Trying to comment on ${strategy} ${lineInfo.lineNumber} in ${file.filename}`);
+      
+      await this.octokitApi.rest.pulls.createReviewComment({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        line: lineInfo.lineNumber,
+        path: file.filename,
+        body: `[ChatGPTReviewer]\n${suggestion.suggestionText}`,
+        commit_id: lastCommitId,
+      });
+      
+      console.log(`✅ Successfully commented on ${strategy} ${lineInfo.lineNumber}`);
+      return true;
+    } catch (error: any) {
+      console.warn(`❌ Failed to comment on ${strategy} ${lineInfo.lineNumber}: ${error.message}`);
+      
+      // Log additional error details for debugging
+      if (error.response?.data) {
+        console.warn(`📋 GitHub API Error Details:`, JSON.stringify(error.response.data, null, 2));
+      }
+      
+      return false;
+    }
+  }
+
+  private async createGeneralPRComment(
+    file: FilenameWithPatch,
+    suggestion: any,
+    context: { owner: string; repo: string; pullNumber: number; lastCommitId: string }
+  ): Promise<boolean> {
+    const { owner, repo, pullNumber } = context;
+    
+    try {
+      console.log(`📝 Creating general PR comment for ${file.filename}`);
+      
+      const commentBody = `## 🤖 ChatGPT Review - \`${file.filename}\`
+
+${suggestion.suggestionText}
+
+*Note: This comment was placed at the PR level because the specific lines in the diff could not be targeted for inline comments.*`;
+
+      await this.octokitApi.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: pullNumber,
+        body: commentBody,
+      });
+      
+      console.log(`✅ Successfully created general PR comment for ${file.filename}`);
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to create general PR comment for ${file.filename}:`, error.message);
+      return false;
+    }
   }
 
   private getValidCommentLines(patch: string): Array<{lineNumber: number, type: 'added' | 'modified' | 'context'}> {
     const lines = patch.split('\n');
     const lineHeaderRegExp = /^@@ -\d+,\d+ \+(\d+),(\d+) @@/;
     const validLines: Array<{lineNumber: number, type: 'added' | 'modified' | 'context'}> = [];
+    
+    // Debug logging for patch analysis
+    console.log(`🔍 Analyzing patch with ${lines.length} lines`);
+    console.log('📄 Patch content preview:');
+    lines.slice(0, 10).forEach((line, index) => {
+      console.log(`  ${index}: "${line}"`);
+    });
+    if (lines.length > 10) {
+      console.log(`  ... and ${lines.length - 10} more lines`);
+    }
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -233,18 +291,31 @@ class CommentOnPullRequestService {
       if (lineHeaderMatch) {
         let currentNewLineNumber = parseInt(lineHeaderMatch[1], 10);
         
+        console.log(`📍 Found patch header at line ${i}: "${line}"`);
+        console.log(`🔢 Starting line number: ${currentNewLineNumber}`);
+        
         // Parse the content after the header
         for (let j = i + 1; j < lines.length; j++) {
           const patchLine = lines[j];
           
-          // Stop if we hit another patch header or end of patch
+          // Stop if we hit another patch header
           if (patchLine.startsWith('@@')) {
+            console.log(`🛑 Found next patch section at line ${j}, stopping current section`);
+            i = j - 1; // Set i to continue from this patch header in the outer loop
             break;
           }
           
           // Skip file headers
           if (patchLine.startsWith('+++') || patchLine.startsWith('---')) {
+            console.log(`⏭️ Skipping file header: "${patchLine}"`);
             continue;
+          }
+          
+          // Stop if we encounter what looks like a new file path (for concatenated patches)
+          if (patchLine.match(/^[a-zA-Z0-9\/\-_.]+\.(php|js|ts|jsx|tsx|py|java|cpp|c|css|html|vue|rb|go|rs)$/)) {
+            console.log(`🗂️ Found new file path: "${patchLine}", stopping current section`);
+            i = j - 1; // Set i to continue from this line in the outer loop
+            break;
           }
           
           if (patchLine.startsWith('+')) {
@@ -253,6 +324,7 @@ class CommentOnPullRequestService {
               lineNumber: currentNewLineNumber,
               type: 'added'
             });
+            console.log(`  ✅ Added line ${currentNewLineNumber}: "${patchLine.substring(1)}"`);
             currentNewLineNumber++;
           } else if (patchLine.startsWith('-')) {
             // Removed line - check if next line is an addition (modification)
@@ -261,6 +333,7 @@ class CommentOnPullRequestService {
                 lineNumber: currentNewLineNumber,
                 type: 'modified'
               });
+              console.log(`  🔄 Modified line ${currentNewLineNumber}: "${patchLine.substring(1)}"`);
             }
             // Don't increment line number for removed lines
           } else if (patchLine.startsWith(' ')) {
@@ -276,9 +349,16 @@ class CommentOnPullRequestService {
           }
         }
         
-        break; // Process only the first patch section for now
+        // Don't break here - continue looking for more patch sections
+        console.log(`✅ Processed patch section, found ${validLines.length} total valid lines so far`);
       }
     }
+    
+    console.log(`📊 Final result: ${validLines.length} valid lines found`);
+    const addedCount = validLines.filter(l => l.type === 'added').length;
+    const modifiedCount = validLines.filter(l => l.type === 'modified').length;
+    const contextCount = validLines.filter(l => l.type === 'context').length;
+    console.log(`  ✅ Added: ${addedCount}, 🔄 Modified: ${modifiedCount}, 📄 Context: ${contextCount}`);
     
     return validLines;
   }
@@ -349,6 +429,25 @@ You can adjust the \`max_tokens\` parameter in your workflow or set \`SHOW_SKIPP
       console.log(`📄 ${file.filename}:`);
       console.log(`  📏 Patch length: ${file.patch?.length || 0} characters`);
       console.log(`  🔢 Estimated tokens: ${fileTokens}`);
+      
+      // Debug: Show a preview of the patch for each file
+      if (file.patch) {
+        console.log(`  📄 Patch preview (first 200 chars):`);
+        console.log(`     "${file.patch.substring(0, 200)}${file.patch.length > 200 ? '...' : ''}"`);
+        
+        // Check if this patch contains multiple files (which shouldn't happen)
+        const lines = file.patch.split('\n');
+        const filePathLines = lines.filter(line => 
+          line.match(/^[a-zA-Z0-9\/\-_.]+\.(php|js|ts|jsx|tsx|py|java|cpp|c|css|html|vue|rb|go|rs)$/)
+        );
+        if (filePathLines.length > 1) {
+          console.warn(`  ⚠️ WARNING: This patch appears to contain multiple files: ${filePathLines.join(', ')}`);
+        }
+        
+        // Count patch headers
+        const patchHeaders = lines.filter(line => line.startsWith('@@'));
+        console.log(`  📊 Patch sections found: ${patchHeaders.length}`);
+      }
       
       if (file.patch && fileTokens <= tokenLimit) {
         console.log(`  ✅ INCLUDED - Within token limit`);
