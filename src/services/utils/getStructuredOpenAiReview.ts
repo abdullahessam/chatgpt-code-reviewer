@@ -71,7 +71,7 @@ const getStructuredOpenAiReview = async (patches: string): Promise<StructuredRev
       { role: 'user', content: patches },
     ],
     response_format: { type: "json_object" }, // Force JSON response
-    temperature: 0.3, // Lower temperature for more consistent structured output
+    // Remove temperature parameter to use model default (fixes gpt-5-mini compatibility)
   };
 
   // 🔍 Validate request body before sending
@@ -79,7 +79,7 @@ const getStructuredOpenAiReview = async (patches: string): Promise<StructuredRev
   console.log(`✅ Model: ${requestBody.model}`);
   console.log(`✅ ${tokenParam}: ${requestBody[tokenParam]}`);
   console.log(`✅ Response format: JSON object enforced`);
-  console.log(`✅ Temperature: ${requestBody.temperature}`);
+  console.log(`✅ Temperature: Using model default (removed for compatibility)`);
   console.log(`✅ Total messages: ${requestBody.messages.length}`);
 
   console.log('📦 Full Request Body:');
