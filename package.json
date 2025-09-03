@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-code-reviewer",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "GitHub action that provides a service for adding review comments to a pull request on GitHub.",
   "main": "dist/index.js",
   "scripts": {
