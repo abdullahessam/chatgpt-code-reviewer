@@ -3,11 +3,12 @@ import { context, getOctokit } from '@actions/github';
 import { encode } from 'gpt-3-encoder';
 
 import errorsConfig, { ErrorMessage } from '../config/errorsConfig';
-import { FilenameWithPatch, Octokit, PullRequestInfo } from './types';
+import { FilenameWithPatch, Octokit, PullRequestInfo, StructuredReviewResponse, LineComment, OverallReview } from './types';
 import concatenatePatchesToString from './utils/concatenatePatchesToString';
 import divideFilesByTokenRange from './utils/divideFilesByTokenRange';
 import extractFirstChangedLineFromPatch from './utils/extractFirstChangedLineFromPatch';
 import getOpenAiSuggestions from './utils/getOpenAiSuggestions';
+import getStructuredOpenAiReview from './utils/getStructuredOpenAiReview';
 import parsePatchForChanges from './utils/patchParser';
 import parseOpenAISuggestions from './utils/parseOpenAISuggestions';
 
@@ -400,6 +401,205 @@ You can adjust the \`max_tokens\` parameter in your workflow or set \`SHOW_SKIPP
       console.log(`✅ Created informational comment for ${filesTooLong.length} skipped files`);
     } catch (error) {
       console.error('❌ Failed to create skipped files comment:', error);
+    }
+  }
+
+  private async createStructuredReviewComments(structuredReview: StructuredReviewResponse) {
+    console.log('🏗️ ===== CREATING STRUCTURED REVIEW COMMENTS =====');
+    
+    const { owner, repo, pullNumber } = this.pullRequest;
+    const lastCommitId = await this.getLastCommit();
+    
+    console.log(`📊 Processing ${structuredReview.file_reviews.length} file reviews`);
+    console.log(`📝 Overall recommendation: ${structuredReview.overall_review.recommendation}`);
+    console.log(`🎯 Quality score: ${structuredReview.overall_review.quality_score}/10`);
+
+    // Create individual line comments for each file
+    for (const fileReview of structuredReview.file_reviews) {
+      if (!fileReview.line_comments || fileReview.line_comments.length === 0) {
+        console.log(`📁 ${fileReview.filename}: No line comments to add`);
+        continue;
+      }
+
+      console.log(`📁 Processing ${fileReview.filename} with ${fileReview.line_comments.length} comments`);
+
+      for (const lineComment of fileReview.line_comments) {
+        try {
+          console.log(`💬 Adding comment to line ${lineComment.line_number}: ${lineComment.comment.substring(0, 100)}...`);
+
+          // Create the comment with severity and category information
+          const formattedComment = this.formatStructuredComment(lineComment);
+
+          await this.octokitApi.rest.pulls.createReviewComment({
+            owner,
+            repo,
+            pull_number: pullNumber,
+            body: formattedComment,
+            commit_id: lastCommitId,
+            path: fileReview.filename,
+            line: lineComment.line_number,
+          });
+
+          console.log(`✅ Successfully added comment to ${fileReview.filename}:${lineComment.line_number}`);
+        } catch (error) {
+          console.error(`❌ Failed to add comment to ${fileReview.filename}:${lineComment.line_number}:`, error);
+          
+          // Try to add as a general comment if line-specific fails
+          try {
+            const fallbackComment = `**File: ${fileReview.filename} (Line ${lineComment.line_number})**\n\n${this.formatStructuredComment(lineComment)}`;
+            await this.createSimplePRComment(fallbackComment);
+            console.log(`✅ Added fallback general comment for ${fileReview.filename}:${lineComment.line_number}`);
+          } catch (fallbackError) {
+            console.error(`❌ Fallback comment also failed:`, fallbackError);
+          }
+        }
+      }
+    }
+
+    // Create overall PR review comment
+    await this.createOverallReviewComment(structuredReview.overall_review);
+  }
+
+  private formatStructuredComment(lineComment: LineComment): string {
+    const severityEmoji: Record<string, string> = {
+      error: '🚨',
+      warning: '⚠️',
+      suggestion: '💡'
+    };
+
+    const categoryEmoji: Record<string, string> = {
+      bug: '🐛',
+      security: '🔒',
+      performance: '⚡',
+      style: '🎨',
+      maintainability: '🔧'
+    };
+
+    return `${severityEmoji[lineComment.severity] || '💭'} **${lineComment.severity.toUpperCase()}** ${categoryEmoji[lineComment.category] || ''} (${lineComment.category})
+
+${lineComment.comment}`;
+  }
+
+  private async createOverallReviewComment(overallReview: OverallReview) {
+    console.log('📋 Creating overall PR review comment');
+    
+    const recommendationEmoji: Record<string, string> = {
+      APPROVE: '✅',
+      REQUEST_CHANGES: '❌',
+      COMMENT: '💬'
+    };
+
+    const qualityStars = '⭐'.repeat(Math.min(Math.max(Math.round(overallReview.quality_score), 1), 10));
+
+    const overallComment = `## 🤖 ChatGPT Code Review Summary
+
+${recommendationEmoji[overallReview.recommendation] || '💬'} **Recommendation:** ${overallReview.recommendation}
+
+### 📊 Overall Assessment
+- **Quality Score:** ${qualityStars} (${overallReview.quality_score}/10)
+- **Issues Found:** ${overallReview.issues_count}
+
+### 📝 Summary
+${overallReview.summary}
+
+---
+*This review was generated by ChatGPT Code Reviewer v1.4.2*`;
+
+    try {
+      await this.createSimplePRComment(overallComment);
+      console.log('✅ Successfully created overall review comment');
+    } catch (error) {
+      console.error('❌ Failed to create overall review comment:', error);
+    }
+  }
+
+  private async createSimplePRComment(commentBody: string): Promise<void> {
+    const { owner, repo, pullNumber } = this.pullRequest;
+    
+    await this.octokitApi.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: pullNumber,
+      body: commentBody,
+    });
+  }
+
+  public async addStructuredCommentToPr() {
+    console.log('🚀 ===== CHATGPT STRUCTURED CODE REVIEWER STARTED =====');
+    console.log(`📅 Started at: ${new Date().toISOString()}`);
+    
+    const { files } = await this.getBranchDiff();
+
+    if (!files) {
+      throw new Error(
+        errorsConfig[ErrorMessage.NO_CHANGED_FILES_IN_PULL_REQUEST],
+      );
+    }
+
+    console.log(`📁 Total files changed in PR: ${files.length}`);
+    
+    // Prepare all patches for structured review
+    const allPatches: string[] = [];
+    const filesTooLongToBeChecked: string[] = [];
+    const tokenLimit = MAX_TOKENS / 3; // More conservative for structured approach
+
+    console.log(`🔢 Token limit per file: ${tokenLimit}`);
+    console.log('📊 ===== FILE ANALYSIS FOR STRUCTURED REVIEW =====');
+
+    for (const file of files) {
+      if (!file.patch) {
+        console.log(`📄 ${file.filename}: No patch content, skipping`);
+        continue;
+      }
+
+      const fileTokens = encode(file.patch).length;
+      console.log(`📄 ${file.filename}:`);
+      console.log(`  📏 Patch length: ${file.patch.length} characters`);
+      console.log(`  🔢 Estimated tokens: ${fileTokens}`);
+      
+      if (fileTokens <= tokenLimit) {
+        console.log(`  ✅ INCLUDED - Within token limit`);
+        // Format patch with filename header for better context
+        allPatches.push(`=== ${file.filename} ===\n${file.patch}\n`);
+      } else {
+        console.log(`  ❌ SKIPPED - Exceeds token limit (${fileTokens} > ${tokenLimit})`);
+        filesTooLongToBeChecked.push(file.filename || 'unknown file');
+      }
+    }
+
+    console.log('📊 ===== STRUCTURED PROCESSING SUMMARY =====');
+    console.log(`✅ Files to review: ${allPatches.length}`);
+    console.log(`❌ Files skipped: ${filesTooLongToBeChecked.length}`);
+
+    if (filesTooLongToBeChecked.length > 0 && SHOW_SKIPPED_FILES_COMMENT) {
+      await this.createSkippedFilesComment(filesTooLongToBeChecked);
+    }
+
+    if (allPatches.length === 0) {
+      console.log('ℹ️ No files to review - all files were too large or had no changes');
+      return;
+    }
+
+    // Combine all patches into one structured review request
+    const combinedPatches = allPatches.join('\n\n');
+    console.log(`📝 Combined patches length: ${combinedPatches.length} characters`);
+    console.log(`🔢 Estimated total tokens: ${encode(combinedPatches).length}`);
+
+    try {
+      console.log('🤖 Requesting structured review from OpenAI...');
+      const structuredReview = await getStructuredOpenAiReview(combinedPatches);
+      
+      console.log('✅ Received structured review, processing comments...');
+      await this.createStructuredReviewComments(structuredReview);
+      
+      console.log('🎉 ===== STRUCTURED REVIEW COMPLETE =====');
+    } catch (error) {
+      console.error('❌ ===== STRUCTURED REVIEW FAILED =====');
+      console.error('Error during structured review:', error);
+      
+      // Fallback to regular review method
+      console.log('🔄 Falling back to regular review method...');
+      await this.addCommentToPr();
     }
   }
 

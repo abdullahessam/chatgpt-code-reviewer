@@ -1,4 +1,11 @@
-# Enhanced ChatGPT Code Reviewer
+# Enhance### 🚀 **New in This Fork:**
+- **🏗️ Structured Review Mode** - NOW DEFAULT! Organized JSON-formatted reviews with overall PR assessment
+- **🎯 Accurate Line Targeting** - Comments now appear on the exact changed lines instead of file tops
+- **🛠️ Custom Prompts** - Customize the review prompt with `CUSTOM_PROMPT` environment variable
+- **🔄 Enhanced Fallback Strategies** - Multiple approaches to ensure comments are placed correctly
+- **📊 Detailed Logging** - Better debugging information for troubleshooting
+- **⚡ Improved Error Handling** - More robust API interaction with GitHub
+- **📋 Smart Large File Handling** - Informative PR comments when files exceed token limitsT Code Reviewer
 
 > **Forked from:** [magnificode-ltd/chatgpt-code-reviewer](https://github.com/magnificode-ltd/chatgpt-code-reviewer)  
 > **Enhanced Version:** This fork includes improved line targeting, custom prompts, and better error handling.
@@ -8,7 +15,8 @@ An intelligent GitHub action that adds ChatGPT-powered code review comments dire
 ## ✨ Features
 
 ### 🚀 **New in This Fork:**
-- **🎯 Accurate Line Targeting** - Comments now appear on the exact changed lines instead of file tops
+- **�️ Structured Review Mode** - NEW! Get organized JSON-formatted reviews with overall PR assessment
+- **�🎯 Accurate Line Targeting** - Comments now appear on the exact changed lines instead of file tops
 - **🛠️ Custom Prompts** - Customize the review prompt with `CUSTOM_PROMPT` environment variable
 - **🔄 Enhanced Fallback Strategies** - Multiple approaches to ensure comments are placed correctly
 - **📊 Detailed Logging** - Better debugging information for troubleshooting
@@ -75,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: ChatGPT Review
-        uses: abdullahessam/chatgpt-code-reviewer@v1.3.0
+        uses: abdullahessam/chatgpt-code-reviewer@v1.4.2
         with:
           model: gpt-3.5-turbo  # Optional: gpt-4, gpt-3.5-turbo
           max_tokens: 4096      # Optional: Adjust based on needs
@@ -109,6 +117,7 @@ Ensure your repository has these settings:
 | `GITHUB_TOKEN` | GitHub access token (auto-provided) | ✅ Yes | `${{ secrets.GITHUB_TOKEN }}` |
 | `OPENAI_API_KEY` | Your OpenAI API key | ✅ Yes | `sk-proj-...` |
 | `CUSTOM_PROMPT` | Custom review instructions | ❌ No | See examples below |
+| `CUSTOM_STRUCTURED_PROMPT` | Custom structured review prompt | ❌ No | Advanced users only |
 | `SHOW_SKIPPED_FILES_COMMENT` | Show PR comment for large files | ❌ No | `true` (default) |
 
 ### Custom Prompt Examples
@@ -127,6 +136,45 @@ CUSTOM_PROMPT: "You are a performance optimization expert. Review the code chang
 ```
 CUSTOM_PROMPT: "You are an experienced code reviewer. Analyze the code changes and provide suggestions for improving code quality, following best practices, and maintaining consistency. Include examples where helpful. Start every suggestion with the file path between @@ markers."
 ```
+
+### 🏗️ Structured Review Mode (Default)
+
+The ChatGPT Code Reviewer now uses structured reviews by default, providing comprehensive assessment:
+
+```yml
+- name: ChatGPT Structured Review
+  uses: abdullahessam/chatgpt-code-reviewer@v1.4.2
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+**What You Get:**
+- 📊 **Overall PR Assessment** - Quality score (1-10) and recommendation (APPROVE/REQUEST_CHANGES/COMMENT)
+- 🎯 **Individual File Reviews** - Line-specific comments with severity and category classification
+- 📋 **Comprehensive Summary** - High-level PR summary with actionable insights
+- 🎨 **Enhanced Formatting** - Visual indicators with emojis and clear structure
+
+**Review Output Example:**
+
+*Overall PR Comment:*
+```markdown
+## 🤖 ChatGPT Code Review Summary
+✅ **Recommendation:** APPROVE
+### 📊 Overall Assessment
+- **Quality Score:** ⭐⭐⭐⭐⭐⭐⭐⭐ (8/10)
+- **Issues Found:** 3
+### 📝 Summary
+The code changes look good overall with some minor improvements needed.
+```
+
+*Individual Line Comments:*
+```markdown
+🚨 **ERROR** 🔒 (security)
+This query is vulnerable to SQL injection. Use parameterized queries instead.
+```
+
+[📖 **Full Structured Review Guide**](STRUCTURED_REVIEW_GUIDE.md)
 
 ---
 
